@@ -29,9 +29,8 @@ Usages:
     conditional_compilation: "EFI_ENGINE_CONTROL"
 
   - name: ignition_state
-    cppFileName: advance_map
+    folder: controllers/algo/ignition
     java: IgnitionState.java
-    folder: controllers/algo
     prepend: integration/rusefi_config_shared.txt
     constexpr: "engine->ignitionState"
 

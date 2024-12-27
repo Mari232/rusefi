@@ -1,5 +1,5 @@
 /**
- * @file	advance_map.cpp
+ * @file ignition_state.cpp
  *
  * @date Mar 27, 2013
  * @author Andrey Belomutskiy, (c) 2012-2020
@@ -20,7 +20,6 @@
 
 #include "pch.h"
 
-#include "advance_map.h"
 #include "idle_thread.h"
 #include "launch_control.h"
 #include "gppwm_channel.h"
@@ -131,6 +130,19 @@ angle_t getRunningAdvance(float rpm, float engineLoad) {
 	return advanceAngle;
 }
 
+angle_t getCltTimingCorrection() {
+	const auto clt = Sensor::get(SensorType::Clt);
+
+	if (!clt)
+		return 0; // this error should be already reported somewhere else, let's just handle it
+
+	return interpolate2d(clt.Value, config->cltTimingBins, config->cltTimingExtra);
+}
+
+void IgnitionState::updateAdvanceCorrections() {
+	cltTimingCorrection = getCltTimingCorrection();
+}
+
 angle_t getAdvanceCorrections(float engineLoad) {
 	auto iat = Sensor::get(SensorType::Iat);
 
@@ -180,8 +192,7 @@ angle_t getCrankingAdvance(float rpm, float engineLoad) {
 }
 #endif // EFI_ENGINE_CONTROL && EFI_SHAFT_POSITION_INPUT
 
-angle_t getAdvance(float rpm, float engineLoad) {
-#if EFI_ENGINE_CONTROL && EFI_SHAFT_POSITION_INPUT
+angle_t IgnitionState::getAdvance(float rpm, float engineLoad) {
 	if (std::isnan(engineLoad)) {
 		return 0; // any error should already be reported
 	}
@@ -218,13 +229,10 @@ angle_t getAdvance(float rpm, float engineLoad) {
 
 	efiAssert(ObdCode::CUSTOM_ERR_ASSERT, !std::isnan(angle), "_AngleN5", 0);
 	return angle;
-#else
-	return 0;
-#endif
 }
 
-angle_t getWrappedAdvance(const float rpm, const float engineLoad) {
-    angle_t angle = getAdvance(rpm, engineLoad) * engine->ignitionState.luaTimingMult + engine->ignitionState.luaTimingAdd;
+angle_t IgnitionState::getWrappedAdvance(const float rpm, const float engineLoad) {
+    angle_t angle = getAdvance(rpm, engineLoad) * luaTimingMult + luaTimingAdd;
     wrapAngle(angle, "getWrappedAdvance", ObdCode::CUSTOM_ERR_ADCANCE_CALC_ANGLE);
     return angle;
 }
@@ -278,6 +286,48 @@ size_t getMultiSparkCount(float rpm) {
 void initIgnitionAdvanceControl() {
 	tcTimingDropTable.initTable(engineConfiguration->tractionControlTimingDrop, engineConfiguration->tractionControlSlipBins, engineConfiguration->tractionControlSpeedBins);
 	tcSparkSkipTable.initTable(engineConfiguration->tractionControlIgnitionSkip, engineConfiguration->tractionControlSlipBins, engineConfiguration->tractionControlSpeedBins);
+}
+
+/**
+ * @return Spark dwell time, in milliseconds. 0 if tables are not ready.
+ */
+floatms_t IgnitionState::getSparkDwell(float rpm, bool isCranking) {
+	float dwellMs;
+	if (isCranking) {
+		dwellMs = engineConfiguration->ignitionDwellForCrankingMs;
+	} else {
+		efiAssert(ObdCode::CUSTOM_ERR_ASSERT, !std::isnan(rpm), "invalid rpm", NAN);
+
+		baseDwell = interpolate2d(rpm, config->sparkDwellRpmBins, config->sparkDwellValues);
+		dwellVoltageCorrection = interpolate2d(
+				Sensor::getOrZero(SensorType::BatteryVoltage),
+				config->dwellVoltageCorrVoltBins,
+				config->dwellVoltageCorrValues
+		);
+
+		// for compat (table full of zeroes)
+		if (dwellVoltageCorrection < 0.1f) {
+			dwellVoltageCorrection = 1;
+		}
+
+		dwellMs = baseDwell * dwellVoltageCorrection;
+	}
+
+	if (std::isnan(dwellMs) || dwellMs <= 0) {
+		// this could happen during engine configuration reset
+		warning(ObdCode::CUSTOM_ERR_DWELL_DURATION, "invalid dwell: %.2f at rpm=%.0f", dwellMs, rpm);
+		return 0;
+	}
+	return dwellMs;
+}
+
+void IgnitionState::updateDwell(float rpm, bool isCranking) {
+	sparkDwell = getSparkDwell(rpm, isCranking);
+	dwellDurationAngle = std::isnan(rpm) ? NAN : getDwell() / getOneDegreeTimeMs(rpm);
+}
+
+floatms_t IgnitionState::getDwell() const {
+	return sparkDwell;
 }
 
 #endif // EFI_ENGINE_CONTROL

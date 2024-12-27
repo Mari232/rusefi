@@ -73,12 +73,34 @@ int EngineTestHelper::getWarningCounter() {
 	return unitTestWarningCodeState.warningCounter;
 }
 
+FILE *jsonTrace = nullptr;
+
 EngineTestHelper::EngineTestHelper(engine_type_e engineType, configuration_callback_t configurationCallback, const std::unordered_map<SensorType, float>& sensorValues) :
 	EngineTestHelperBase(&engine, &persistentConfig.engineConfiguration, &persistentConfig)
 {
 	memset(&persistentConfig, 0, sizeof(persistentConfig));
 	memset(&pinRepository, 0, sizeof(pinRepository));
 
+
+	auto testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
+extern bool hasInitGtest;
+	if (hasInitGtest) {
+    	std::stringstream filePath;
+    	filePath << "unittest_" << testInfo->test_case_name() << "_" << testInfo->name() << "_trace.json";
+    	// fun fact: ASAN says not to extract 'fileName' into a variable, we must be doing something a bit not right?
+    	jsonTrace = fopen(filePath.str().c_str(), "wb");
+    	if (jsonTrace == nullptr) {
+//    		criticalError("Error creating file [%s]", filePath.str().c_str());
+    		// TOOD handle config tests
+    		printf("Error creating file [%s]\n", filePath.str().c_str());
+    	} else {
+    		fprintf(jsonTrace, "{\"traceEvents\": [\n");
+    		fprintf(jsonTrace, "{\"name\":\"process_name\",\"ph\":\"M\",\"pid\":-16,\"tid\":0,\"args\":{\"name\":\"Main\"}}\n");
+    	}
+    } else {
+	  // todo: document why this branch even exists
+		jsonTrace = nullptr;
+	}
 
 	Sensor::setMockValue(SensorType::Clt, 70);
 	Sensor::setMockValue(SensorType::Iat, 30);
@@ -180,6 +202,12 @@ EngineTestHelper::~EngineTestHelper() {
     	filePath << "unittest_" << testInfo->test_case_name() << "_" << testInfo->name() << ".events.txt";
 	    writeEvents2(filePath.str().c_str());
 	}
+
+  if (jsonTrace != nullptr) {
+   	fprintf(jsonTrace, "]}\n");
+    fclose(jsonTrace);
+    jsonTrace = nullptr;
+  }
 
 	// Cleanup
 	enginePins.reset();
