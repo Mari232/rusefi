@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "defaults.h"
+#include "board_overrides.h"
 
 // --- Helpery lokalne, static = tylko w tym pliku ---
 static void balefi_setInjectorPins() {
@@ -47,8 +48,8 @@ static void balefi_setEtbConfig() {
 void balefi_setBoardConfigOverrides() {
     balefi_setupVbatt();
     balefi_setSdCardSpi1();
-    engineConfiguration->clt.config.bias_resistor = 4700;
-    engineConfiguration->iat.config.bias_resistor = 4700;
+    //engineConfiguration->clt.config.bias_resistor = 4700;
+    //engineConfiguration->iat.config.bias_resistor = 4700;
 }
 
 void balefi_setBoardDefaultConfiguration() {
@@ -93,16 +94,17 @@ void balefi_setBoardDefaultConfiguration() {
     engineConfiguration->etbFunctions[0] = DC_Throttle1;
     engineConfiguration->injectorCompensationMode = ICM_FixedRailPressure;
 
-    setCommonNTCSensor(&engineConfiguration->clt, 4700);
-    setCommonNTCSensor(&engineConfiguration->iat, 4700);
+    //setCommonNTCSensor(&engineConfiguration->clt, 4700);
+    //setCommonNTCSensor(&engineConfiguration->iat, 4700);
     setTPS1Calibration(100, 650);
 
-    setCrankOperationMode();
+    //setCrankOperationMode();
 }
 
 // --- Brakująca funkcja dla linkera (unikalna nazwa) ---
 void setup_custom_board_overrides() {
-    balefi_setBoardConfigOverrides();
+    custom_board_DefaultConfiguration = balefi_setBoardConfigOverrides;
+    custom_board_ConfigOverrides = balefi_setBoardDefaultConfiguration;
 }
 
 // --- Pozostałe funkcje lokalne ---
